@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useState, useEffect, type KeyboardEvent } from 'react'
 
 interface Props {
   onSend: (text: string) => void
@@ -7,6 +7,7 @@ interface Props {
 
 export default function ChatInput({ onSend, disabled }: Props) {
   const [text, setText] = useState('')
+  const [listening, setListening] = useState(false)
 
   const handleSend = () => {
     if (!text.trim() || disabled) return
@@ -21,8 +22,47 @@ export default function ChatInput({ onSend, disabled }: Props) {
     }
   }
 
+  const toggleVoice = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) return
+
+    if (listening) {
+      setListening(false)
+      return
+    }
+
+    const recognition = new SR()
+    recognition.lang = 'zh-CN'
+    recognition.continuous = false
+    recognition.interimResults = false
+
+    recognition.onresult = (e: any) => {
+      const transcript = e.results[0][0].transcript
+      setText(prev => prev + transcript)
+      setListening(false)
+    }
+
+    recognition.onerror = () => { setListening(false) }
+    recognition.onend = () => { setListening(false) }
+
+    recognition.start()
+    setListening(true)
+  }
+
+  const voiceSupported = typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+
   return (
     <div className="chat-input-row">
+      {voiceSupported && (
+        <button
+          className={`voice-btn ${listening ? 'listening' : ''}`}
+          onClick={toggleVoice}
+          disabled={disabled}
+          title={listening ? '停止录音' : '语音输入'}
+        >
+          {listening ? '●' : '🎤'}
+        </button>
+      )}
       <input
         value={text}
         onChange={e => setText(e.target.value)}

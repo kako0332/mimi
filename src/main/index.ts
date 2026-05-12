@@ -81,12 +81,14 @@ ipcMain.handle('settings:get', () => {
   return hermes.getConfig()
 })
 
-ipcMain.handle('settings:set', (_e, config: { apiUrl: string; apiKey: string; alwaysOnTop: boolean; autoStart: boolean }) => {
+ipcMain.handle('settings:set', (_e, config: Record<string, any>) => {
   hermes.setConfig(config)
-  if (mainWindow) {
+  if (mainWindow && config.alwaysOnTop !== undefined) {
     mainWindow.setAlwaysOnTop(config.alwaysOnTop)
   }
-  app.setLoginItemSettings({ openAtLogin: config.autoStart })
+  if (config.autoStart !== undefined) {
+    app.setLoginItemSettings({ openAtLogin: config.autoStart })
+  }
 })
 
 ipcMain.handle('window:set-always-on-top', (_e, flag: boolean) => {
@@ -95,6 +97,54 @@ ipcMain.handle('window:set-always-on-top', (_e, flag: boolean) => {
 
 ipcMain.handle('window:minimize-to-tray', () => {
   mainWindow?.hide()
+})
+
+// --- Dashboard API (Skills, Sessions, Profiles) ---
+
+ipcMain.handle('dashboard:check', async () => {
+  return hermes.checkDashboard()
+})
+
+ipcMain.handle('skills:list', async () => {
+  return hermes.getSkills()
+})
+
+ipcMain.handle('skills:toggle', async (_e, name: string, enabled: boolean) => {
+  return hermes.toggleSkill(name, enabled)
+})
+
+ipcMain.handle('sessions:list', async () => {
+  return hermes.getSessions()
+})
+
+ipcMain.handle('sessions:messages', async (_e, id: string) => {
+  return hermes.getSessionMessages(id)
+})
+
+ipcMain.handle('profiles:list', async () => {
+  return hermes.getProfiles()
+})
+
+ipcMain.handle('profiles:soul', async (_e, name: string) => {
+  return hermes.getProfileSoul(name)
+})
+
+// --- Cron Jobs ---
+
+ipcMain.handle('jobs:list', async () => {
+  return hermes.getJobs()
+})
+
+ipcMain.handle('jobs:create', async (_e, job: { name: string; schedule: string; prompt: string; deliver?: string }) => {
+  return hermes.createJob(job)
+})
+
+ipcMain.handle('jobs:delete', async (_e, id: string) => {
+  return hermes.deleteJob(id)
+})
+
+ipcMain.handle('jobs:toggle', async (_e, id: string, action: 'pause' | 'resume' | 'run') => {
+  return hermes.toggleJob(id, action)
 })
 
 // --- App Lifecycle ---
