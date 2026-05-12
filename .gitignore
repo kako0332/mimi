@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+.env
+*.log
+screenshot.png
+screenshot2.png
