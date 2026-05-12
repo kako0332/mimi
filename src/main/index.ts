@@ -2,11 +2,15 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen } from 'el
 import { join } from 'path'
 import { electronApp } from '@electron-toolkit/utils'
 import { HermesClient } from './hermes'
+import { startEventListener, stopEventListener } from './hermes-events'
+import { startMcpServer, stopMcpServer } from './mcp-server'
+import Store from 'electron-store'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 const hermes = new HermesClient()
+const store = new Store()
 
 function createWindow(): void {
   const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize
@@ -44,6 +48,10 @@ function createWindow(): void {
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.error('Renderer gone:', details)
   })
+
+  // Start event listener and MCP server
+  startEventListener(mainWindow, store)
+  startMcpServer(mainWindow)
 }
 
 function createTray(): void {
@@ -88,6 +96,10 @@ ipcMain.handle('settings:set', (_e, config: Record<string, any>) => {
   }
   if (config.autoStart !== undefined) {
     app.setLoginItemSettings({ openAtLogin: config.autoStart })
+  }
+  // Restart event listener if dashboard URL changed
+  if (config.dashboardUrl !== undefined) {
+    startEventListener(mainWindow, store)
   }
 })
 
@@ -158,4 +170,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  stopEventListener()
+  stopMcpServer()
 })

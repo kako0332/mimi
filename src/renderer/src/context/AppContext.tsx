@@ -20,6 +20,12 @@ export interface CronJob {
   enabled?: boolean
 }
 
+export interface PetNotification {
+  title: string
+  message: string
+  timestamp: number
+}
+
 interface AppState {
   connected: boolean
   expression: Expression
@@ -30,6 +36,7 @@ interface AppState {
   skills: Skill[]
   sessions: any[]
   jobs: CronJob[]
+  notifications: PetNotification[]
 }
 
 type Action =
@@ -44,6 +51,8 @@ type Action =
   | { type: 'TOGGLE_SKILL'; name: string; enabled: boolean }
   | { type: 'SET_SESSIONS'; sessions: any[] }
   | { type: 'SET_JOBS'; jobs: CronJob[] }
+  | { type: 'ADD_NOTIFICATION'; notification: PetNotification }
+  | { type: 'CLEAR_NOTIFICATIONS' }
 
 // Expression sync: analyze response text for keywords
 function detectExpression(text: string, current: Expression): Expression {
@@ -102,6 +111,13 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, sessions: action.sessions }
     case 'SET_JOBS':
       return { ...state, jobs: action.jobs }
+    case 'ADD_NOTIFICATION':
+      return {
+        ...state,
+        notifications: [...state.notifications, action.notification].slice(-10)
+      }
+    case 'CLEAR_NOTIFICATIONS':
+      return { ...state, notifications: [] }
   }
 }
 
@@ -126,7 +142,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dashboardConnected: false,
     skills: [],
     sessions: [],
-    jobs: []
+    jobs: [],
+    notifications: []
   })
 
   // Connection check
@@ -170,6 +187,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Tray menu "open settings"
   useEffect(() => {
     window.api.onOpenSettings(() => {})
+  }, [])
+
+  // MCP event listeners
+  useEffect(() => {
+    window.api.onMcpSetExpression((data) => {
+      dispatch({ type: 'SET_EXPRESSION', expression: data.expression as Expression })
+    })
+    window.api.onMcpNotification((data) => {
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        notification: { title: data.title, message: data.message, timestamp: Date.now() }
+      })
+    })
+    window.api.onMcpMessage((data) => {
+      dispatch({ type: 'ADD_MESSAGE', message: { role: 'assistant', content: data.content } })
+    })
+    window.api.onMcpChangeTheme((data) => {
+      dispatch({ type: 'SET_THEME', theme: data.theme })
+    })
+    window.api.onHermesEvent((event) => {
+      if (event.type === 'cron_result' || event.type === 'job_result') {
+        dispatch({
+          type: 'ADD_NOTIFICATION',
+          notification: { title: '定时任务', message: event.data?.output || event.data?.result || '任务完成', timestamp: Date.now() }
+        })
+      }
+    })
   }, [])
 
   const send = useCallback(async (text: string) => {

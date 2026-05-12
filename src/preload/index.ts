@@ -79,6 +79,27 @@ const api = {
 
   toggleJob: (id: string, action: 'pause' | 'resume' | 'run'): Promise<boolean> => {
     return ipcRenderer.invoke('jobs:toggle', id, action)
+  },
+
+  // Event listeners (hermes events + MCP)
+  onHermesEvent: (callback: (event: any) => void) => {
+    ipcRenderer.on('hermes:event', (_e, data) => callback(data))
+  },
+
+  onMcpSetExpression: (callback: (data: { expression: string }) => void) => {
+    ipcRenderer.on('mcp:set-expression', (_e, data) => callback(data))
+  },
+
+  onMcpNotification: (callback: (data: { title: string; message: string }) => void) => {
+    ipcRenderer.on('mcp:notification', (_e, data) => callback(data))
+  },
+
+  onMcpMessage: (callback: (data: { content: string }) => void) => {
+    ipcRenderer.on('mcp:message', (_e, data) => callback(data))
+  },
+
+  onMcpChangeTheme: (callback: (data: { theme: string }) => void) => {
+    ipcRenderer.on('mcp:change-theme', (_e, data) => callback(data))
   }
 }
 

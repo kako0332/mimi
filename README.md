@@ -2,6 +2,47 @@
 
 由 [Hermes Agent](https://github.com/NousResearch/Hermes-Agent) 驱动的桌面宠物，基于 Electron + React + TypeScript 构建。
 
+## v0.3.0 - Phase 3
+
+扩展版本，新增事件监听、MCP 工具协议、多平台打包和自动化测试。
+
+### 新增功能
+
+- **Hermes 事件监听** - 实时订阅 Hermes Dashboard 事件流（SSE），定时任务结果自动通知宠物
+- **MCP 工具协议** - 基于 Model Context Protocol 的 HTTP+SSE JSON-RPC 服务（端口 3100），AI 可远程控制宠物表情、通知、消息、主题
+- **MCP 工具列表**
+  - `set_expression` - 设置宠物表情
+  - `show_notification` - 显示桌面通知
+  - `display_message` - 在聊天气泡中显示消息
+  - `change_theme` - 切换宠物皮肤主题
+- **通知系统** - 宠物头顶弹出通知气泡，自动淡出，支持 Hermes 事件和 MCP 触发
+- **多平台打包** - Windows（NSIS 安装包）、macOS（DMG）、Linux（AppImage + deb）一键构建
+- **E2E 自动化测试** - 基于 Playwright 的 Electron 端到端测试，覆盖 8 个核心场景
+
+### 构建与测试
+
+```bash
+# 构建
+npm run build
+
+# 开发
+npm run dev
+
+# E2E 测试
+npm run test:e2e
+
+# 打包（Windows）
+npm run package:win
+
+# 打包（macOS）
+npm run package:mac
+
+# 打包（Linux）
+npm run package:linux
+```
+
+---
+
 ## v0.2.0 - Phase 2
 
 增强版本，新增 6 大功能。
@@ -63,7 +104,9 @@ desktop-pet/
 ├── src/
 │   ├── main/
 │   │   ├── index.ts          # Electron 主进程
-│   │   └── hermes.ts         # Hermes API 客户端（SSE 流式 + Dashboard API）
+│   │   ├── hermes.ts         # Hermes API 客户端（SSE 流式 + Dashboard API）
+│   │   ├── hermes-events.ts  # Hermes 事件流监听（SSE）
+│   │   └── mcp-server.ts     # MCP 工具协议服务（HTTP+SSE JSON-RPC）
 │   ├── preload/
 │   │   ├── index.ts          # 预加载脚本（contextBridge）
 │   │   └── index.d.ts        # TypeScript 类型声明
@@ -82,6 +125,9 @@ desktop-pet/
 │               ├── SkillsPanel.tsx
 │               ├── MemoryPanel.tsx
 │               └── CronPanel.tsx
+├── tests/
+│   └── e2e/
+│       └── app.spec.ts       # Playwright E2E 测试
 ├── assets/
 │   └── tray-icon.png
 ├── VERSION
@@ -99,3 +145,6 @@ desktop-pet/
 | 流式通信 | SSE + MessagePort IPC |
 | 主题 | CSS 自定义属性 |
 | 语音 | Web Speech API |
+| 工具协议 | MCP（HTTP+SSE JSON-RPC） |
+| 测试 | Playwright |
+| 打包 | electron-builder |

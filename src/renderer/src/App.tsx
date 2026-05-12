@@ -42,10 +42,19 @@ export default function App() {
     { key: 'cron', label: '定时' }
   ]
 
+  const latestNotification = state.notifications[state.notifications.length - 1]
+
   return (
     <div className="app">
       <div className="drag-region" />
       <PetCharacter expression={state.expression} onClick={handlePetClick} />
+
+      {latestNotification && (
+        <div className="pet-notification" key={latestNotification.timestamp}>
+          <strong>{latestNotification.title}</strong>
+          <span>{latestNotification.message}</span>
+        </div>
+      )}
 
       {chatOpen && !settingsOpen && (
         <div className="chat-container">

@@ -713,3 +713,40 @@ html, body, #root {
 }
 .cron-action:hover { border-color: var(--accent); color: var(--accent); }
 .cron-action.danger:hover { border-color: #e53e3e; color: #e53e3e; }
+
+/* ---- Pet Notification (from MCP / Hermes events) ---- */
+
+.pet-notification {
+  position: absolute;
+  top: 135px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  max-width: 200px;
+  animation: notif-in 0.3s ease, notif-out 0.3s ease 4.7s forwards;
+  pointer-events: none;
+  z-index: 10;
+}
+.pet-notification strong {
+  font-size: 11px;
+  color: var(--accent);
+}
+.pet-notification span {
+  color: #555;
+  word-break: break-word;
+}
+@keyframes notif-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes notif-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
