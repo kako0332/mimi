@@ -10,7 +10,9 @@ export default function MemoryPanel() {
 
   useEffect(() => {
     if (!selectedId) return
-    window.api.getSessionMessages(selectedId).then(setMessages)
+    window.api.getSessionMessages(selectedId)
+      .then(data => setMessages(Array.isArray(data) ? data : []))
+      .catch(() => setMessages([]))
   }, [selectedId])
 
   const sessions = state.sessions.slice(0, 20)

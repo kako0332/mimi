@@ -11,7 +11,7 @@ import CronPanel from './components/CronPanel'
 type Tab = 'chat' | 'skills' | 'memory' | 'cron'
 
 export default function App() {
-  const { state } = useAppState()
+  const { state, send } = useAppState()
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('chat')
@@ -72,7 +72,7 @@ export default function App() {
             <>
               <ChatBubble messages={state.messages} streaming={state.isStreaming} />
               <ChatInput
-                onSend={state.send}
+                onSend={send}
                 disabled={!state.connected || state.isStreaming}
               />
               {!state.connected && (

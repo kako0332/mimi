@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen } from 'electron'
 import { join } from 'path'
+import { spawn, ChildProcess } from 'child_process'
 import { electronApp } from '@electron-toolkit/utils'
 import { HermesClient } from './hermes'
 import { startEventListener, stopEventListener } from './hermes-events'
@@ -8,6 +9,7 @@ import Store from 'electron-store'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let hermesProcess: ChildProcess | null = null
 
 const hermes = new HermesClient()
 const store = new Store()
@@ -34,6 +36,7 @@ function createWindow(): void {
   })
 
   mainWindow.setVisibleOnAllWorkspaces(true)
+  mainWindow.setSkipTaskbar(true)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -50,12 +53,12 @@ function createWindow(): void {
   })
 
   // Start event listener and MCP server
-  startEventListener(mainWindow, store)
+  startEventListener(mainWindow, store, hermes)
   startMcpServer(mainWindow)
 }
 
 function createTray(): void {
-  const iconPath = join(__dirname, '../../assets/tray-icon.png')
+  const iconPath = join(__dirname, '../../assets/app.ico')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon)
   const contextMenu = Menu.buildFromTemplate([
@@ -71,14 +74,16 @@ function createTray(): void {
 
 // --- IPC Handlers ---
 
-ipcMain.on('hermes:chat-stream', (event, messages: { role: string; content: string }[]) => {
-  const [port] = event.ports
-  ;(async () => {
-    for await (const chunk of hermes.chat(messages)) {
-      port.postMessage(chunk)
+ipcMain.on('hermes:chat-start', (event, { id, text }: { id: string, text: string }) => {
+  const channel = `hermes:chunk:${id}`
+  hermes.chat(text, (chunk) => {
+    if (event.sender.isDestroyed()) return
+    event.sender.send(channel, chunk)
+  }).catch((err: Error) => {
+    if (!event.sender.isDestroyed()) {
+      event.sender.send(channel, { type: 'error', content: err.message })
     }
-    port.close()
-  })()
+  })
 })
 
 ipcMain.handle('hermes:check-connection', async () => {
@@ -99,7 +104,7 @@ ipcMain.handle('settings:set', (_e, config: Record<string, any>) => {
   }
   // Restart event listener if dashboard URL changed
   if (config.dashboardUrl !== undefined) {
-    startEventListener(mainWindow, store)
+    startEventListener(mainWindow, store, hermes)
   }
 })
 
@@ -159,6 +164,17 @@ ipcMain.handle('jobs:toggle', async (_e, id: string, action: 'pause' | 'resume' 
   return hermes.toggleJob(id, action)
 })
 
+// --- Single Instance ---
+
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    mainWindow?.show()
+  })
+}
+
 // --- App Lifecycle ---
 
 app.whenReady().then(() => {
@@ -166,6 +182,18 @@ app.whenReady().then(() => {
 
   createWindow()
   createTray()
+
+  // Start Hermes Dashboard in background (no browser, no UI)
+  const hermesExe = join(process.env.LOCALAPPDATA || '', 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe')
+  hermesProcess = spawn(hermesExe, ['dashboard', '--no-open', '--skip-build', '--tui'], {
+    detached: false,
+    stdio: 'ignore',
+    windowsHide: true
+  })
+  hermesProcess.unref()
+
+  // Fetch session token after Dashboard starts
+  setTimeout(() => { hermes.fetchSessionToken() }, 3000)
 })
 
 app.on('window-all-closed', () => {
@@ -175,4 +203,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   stopEventListener()
   stopMcpServer()
+  if (hermesProcess) {
+    hermesProcess.kill()
+    hermesProcess = null
+  }
 })

@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import Store from 'electron-store'
+import { HermesClient } from './hermes'
 
 interface HermesConfig {
   dashboardUrl: string
@@ -8,9 +9,12 @@ interface HermesConfig {
 
 let abortController: AbortController | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let hermesClient: HermesClient | null = null
 
-export function startEventListener(mainWindow: BrowserWindow | null, store: Store): void {
+export function startEventListener(mainWindow: BrowserWindow | null, store: Store, client?: HermesClient): void {
   stopEventListener()
+
+  if (client) hermesClient = client
 
   const config = store.store as unknown as HermesConfig
   const url = `${config.dashboardUrl}/api/events`
@@ -19,7 +23,8 @@ export function startEventListener(mainWindow: BrowserWindow | null, store: Stor
   async function connect() {
     try {
       const headers: Record<string, string> = {}
-      if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
+      const token = hermesClient?.getSessionToken()
+      if (token) headers['X-Hermes-Session-Token'] = token
 
       const res = await fetch(url, {
         headers,

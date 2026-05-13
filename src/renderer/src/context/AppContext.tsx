@@ -2,9 +2,18 @@ import { createContext, useContext, useReducer, useEffect, useCallback, type Rea
 
 export type Expression = 'idle' | 'happy' | 'talking' | 'sad' | 'thinking' | 'sleeping'
 
+export interface ToolCall {
+  id: string
+  name: string
+  status: 'running' | 'done' | 'error'
+  args?: string
+  result?: string
+}
+
 export interface Message {
   role: 'user' | 'assistant' | 'error'
   content: string
+  toolCalls?: ToolCall[]
 }
 
 export interface Skill {
@@ -44,6 +53,9 @@ type Action =
   | { type: 'SET_EXPRESSION'; expression: Expression }
   | { type: 'ADD_MESSAGE'; message: Message }
   | { type: 'APPEND_LAST_MESSAGE'; content: string }
+  | { type: 'ADD_TOOL_CALL'; toolCall: ToolCall }
+  | { type: 'UPDATE_TOOL_CALL'; id: string; status: ToolCall['status']; result?: string }
+  | { type: 'UPDATE_TOOL_CALL_BY_NAME'; name: string; status: ToolCall['status']; result?: string }
   | { type: 'SET_STREAMING'; streaming: boolean }
   | { type: 'SET_THEME'; theme: string }
   | { type: 'SET_DASHBOARD_CONNECTED'; connected: boolean }
@@ -89,6 +101,47 @@ function reducer(state: AppState, action: Action): AppState {
         messages: msgs,
         expression: detectExpression(action.content, state.expression)
       }
+    }
+    case 'ADD_TOOL_CALL': {
+      const msgs = [...state.messages]
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === 'assistant') {
+        msgs[msgs.length - 1] = {
+          ...last,
+          toolCalls: [...(last.toolCalls || []), action.toolCall]
+        }
+      }
+      return { ...state, messages: msgs }
+    }
+    case 'UPDATE_TOOL_CALL': {
+      const msgs = [...state.messages]
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === 'assistant' && last.toolCalls) {
+        msgs[msgs.length - 1] = {
+          ...last,
+          toolCalls: last.toolCalls.map(tc =>
+            tc.id === action.id ? { ...tc, status: action.status, result: action.result } : tc
+          )
+        }
+      }
+      return { ...state, messages: msgs }
+    }
+    case 'UPDATE_TOOL_CALL_BY_NAME': {
+      const msgs = [...state.messages]
+      const last = msgs[msgs.length - 1]
+      if (last && last.role === 'assistant' && last.toolCalls) {
+        // Find the last running tool with this name
+        let updated = false
+        const newCalls = [...last.toolCalls].reverse().map(tc => {
+          if (!updated && tc.name === action.name && tc.status === 'running') {
+            updated = true
+            return { ...tc, status: action.status, result: action.result }
+          }
+          return tc
+        }).reverse()
+        msgs[msgs.length - 1] = { ...last, toolCalls: newCalls }
+      }
+      return { ...state, messages: msgs }
     }
     case 'SET_STREAMING':
       return {
@@ -146,73 +199,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     notifications: []
   })
 
-  // Connection check
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>
-
-    async function check() {
-      try {
-        const result = await window.api.checkConnection()
-        dispatch({ type: 'SET_CONNECTED', connected: result.connected })
-      } catch {
-        dispatch({ type: 'SET_CONNECTED', connected: false })
-      }
-    }
-
-    check()
-    timer = setInterval(check, 10000)
-    return () => clearInterval(timer)
-  }, [])
-
-  // Dashboard check
-  useEffect(() => {
-    async function check() {
-      try {
-        const result = await window.api.checkDashboard()
-        dispatch({ type: 'SET_DASHBOARD_CONNECTED', connected: result.connected })
-      } catch {
-        dispatch({ type: 'SET_DASHBOARD_CONNECTED', connected: false })
-      }
-    }
-    check()
-  }, [state.connected])
-
-  // Load theme from settings
-  useEffect(() => {
-    window.api.getSettings().then(s => {
-      if (s.theme) dispatch({ type: 'SET_THEME', theme: s.theme })
-    })
-  }, [])
-
-  // Tray menu "open settings"
-  useEffect(() => {
-    window.api.onOpenSettings(() => {})
-  }, [])
-
-  // MCP event listeners
-  useEffect(() => {
-    window.api.onMcpSetExpression((data) => {
-      dispatch({ type: 'SET_EXPRESSION', expression: data.expression as Expression })
-    })
-    window.api.onMcpNotification((data) => {
-      dispatch({
-        type: 'ADD_NOTIFICATION',
-        notification: { title: data.title, message: data.message, timestamp: Date.now() }
-      })
-    })
-    window.api.onMcpMessage((data) => {
-      dispatch({ type: 'ADD_MESSAGE', message: { role: 'assistant', content: data.content } })
-    })
-    window.api.onMcpChangeTheme((data) => {
-      dispatch({ type: 'SET_THEME', theme: data.theme })
-    })
-    window.api.onHermesEvent((event) => {
-      if (event.type === 'cron_result' || event.type === 'job_result') {
-        dispatch({
-          type: 'ADD_NOTIFICATION',
-          notification: { title: '定时任务', message: event.data?.output || event.data?.result || '任务完成', timestamp: Date.now() }
-        })
-      }
+    window.api.checkConnection().then(result => {
+      dispatch({ type: 'SET_CONNECTED', connected: result.connected })
     })
   }, [])
 
@@ -224,28 +213,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_STREAMING', streaming: true })
     dispatch({ type: 'SET_EXPRESSION', expression: 'talking' })
 
-    const messages = [...state.messages, { role: 'user' as const, content: text }]
-    const port = window.api.chatStream(messages)
-
-    port.onmessage = (e: MessageEvent) => {
-      const chunk = e.data as { type: string; content: string }
+    window.api.chatStream(text, (chunk: { type: string; content: string }) => {
       if (chunk.type === 'text') {
         dispatch({ type: 'APPEND_LAST_MESSAGE', content: chunk.content })
+      } else if (chunk.type === 'tool_start') {
+        try {
+          const tool = JSON.parse(chunk.content)
+          dispatch({ type: 'ADD_TOOL_CALL', toolCall: { id: tool.id, name: tool.name, status: 'running', args: tool.context } })
+        } catch { /* ignore */ }
+      } else if (chunk.type === 'tool_complete') {
+        try {
+          const tool = JSON.parse(chunk.content)
+          dispatch({ type: 'UPDATE_TOOL_CALL', id: tool.id, status: 'done', result: tool.summary })
+        } catch { /* ignore */ }
       } else if (chunk.type === 'error') {
         dispatch({ type: 'ADD_MESSAGE', message: { role: 'error', content: chunk.content } })
+        dispatch({ type: 'SET_STREAMING', streaming: false })
       } else if (chunk.type === 'done') {
         dispatch({ type: 'SET_STREAMING', streaming: false })
-        port.close()
       }
-    }
-
-    port.onerror = () => {
-      dispatch({ type: 'SET_STREAMING', streaming: false })
-      dispatch({ type: 'SET_CONNECTED', connected: false })
-    }
-
-    port.start()
-  }, [state.messages, state.isStreaming])
+    })
+  }, [state.isStreaming])
 
   const refreshSkills = useCallback(async () => {
     const skills = await window.api.listSkills()

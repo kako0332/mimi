@@ -3,7 +3,7 @@ import { IPC } from '@electron-toolkit/preload'
 declare global {
   interface Window {
     api: {
-      chatStream: (messages: { role: string; content: string }[]) => MessagePort
+      chatStream: (text: string, onChunk: (chunk: any) => void) => void
       checkConnection: () => Promise<{ connected: boolean; error?: string }>
       getSettings: () => Promise<{
         apiUrl: string

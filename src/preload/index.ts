@@ -1,11 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
-  // Streaming chat via MessagePort
-  chatStream: (messages: { role: string; content: string }[]): MessagePort => {
-    const { port1, port2 } = ipcRenderer.createMessageChannel()
-    ipcRenderer.postMessage('hermes:chat-stream', messages, [port2])
-    return port1
+  chatStream: (text: string, onChunk: (chunk: any) => void): void => {
+    const id = `${Date.now()}-${Math.random()}`
+    const channel = `hermes:chunk:${id}`
+    const handler = (_e: any, chunk: any) => {
+      onChunk(chunk)
+      if (chunk.type === 'done' || chunk.type === 'error') {
+        ipcRenderer.removeListener(channel, handler)
+      }
+    }
+    ipcRenderer.on(channel, handler)
+    ipcRenderer.send('hermes:chat-start', { id, text })
   },
 
   checkConnection: (): Promise<{ connected: boolean; error?: string }> => {

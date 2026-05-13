@@ -83,6 +83,7 @@ html, body, #root {
   cursor: pointer;
   -webkit-app-region: no-drag;
   position: relative;
+  z-index: 10;
 }
 
 .pet-body {
@@ -269,6 +270,7 @@ html, body, #root {
   left: 50%;
   transform: translateX(-50%);
   width: 280px;
+  max-height: calc(100% - 130px);
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0,0,0,0.15);
@@ -276,6 +278,7 @@ html, body, #root {
   flex-direction: column;
   overflow: hidden;
   -webkit-app-region: no-drag;
+  z-index: 5;
 }
 
 /* Tab bar */
@@ -334,6 +337,75 @@ html, body, #root {
   color: #c00;
   align-self: center;
   font-size: 11px;
+}
+
+/* Tool calls */
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tool-call {
+  background: #f0f4f8;
+  border: 1px solid #dde3ea;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.tool-call:hover {
+  border-color: var(--accent);
+}
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-status {
+  font-size: 10px;
+  font-weight: 700;
+}
+.tool-status.running {
+  color: #f0a030;
+  animation: pulse 1s ease-in-out infinite;
+}
+.tool-status.done {
+  color: #2e7d32;
+}
+.tool-status.error {
+  color: #c00;
+}
+.tool-name {
+  font-family: monospace;
+  color: #555;
+}
+.tool-detail {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #e0e4e8;
+}
+.tool-section {
+  margin-bottom: 4px;
+}
+.tool-label {
+  display: block;
+  font-size: 10px;
+  color: #999;
+  margin-bottom: 2px;
+}
+.tool-code {
+  background: #e8ecf0;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 10px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
+  margin: 0;
+  color: #444;
 }
 
 .chat-input-row {

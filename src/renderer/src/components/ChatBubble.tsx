@@ -1,9 +1,44 @@
-import { useEffect, useRef } from 'react'
-import type { Message } from '../context/AppContext'
+import { useEffect, useRef, useState } from 'react'
+import type { Message, ToolCall } from '../context/AppContext'
 
 interface Props {
   messages: Message[]
   streaming: boolean
+}
+
+function ToolCallCard({ tc }: { tc: ToolCall }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const statusIcon = tc.status === 'running' ? '...'
+    : tc.status === 'done' ? '✓'
+    : '✗'
+
+  const statusClass = `tool-status ${tc.status}`
+
+  return (
+    <div className="tool-call" onClick={() => setExpanded(!expanded)}>
+      <div className="tool-header">
+        <span className={statusClass}>{statusIcon}</span>
+        <span className="tool-name">{tc.name}</span>
+      </div>
+      {expanded && (
+        <div className="tool-detail">
+          {tc.args && (
+            <div className="tool-section">
+              <span className="tool-label">参数</span>
+              <pre className="tool-code">{tc.args}</pre>
+            </div>
+          )}
+          {tc.result && (
+            <div className="tool-section">
+              <span className="tool-label">结果</span>
+              <pre className="tool-code">{tc.result}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function ChatBubble({ messages, streaming }: Props) {
@@ -20,6 +55,13 @@ export default function ChatBubble({ messages, streaming }: Props) {
           {msg.content}
           {streaming && msg.role === 'assistant' && i === messages.length - 1 && (
             <span className="cursor">|</span>
+          )}
+          {msg.toolCalls && msg.toolCalls.length > 0 && (
+            <div className="tool-calls">
+              {msg.toolCalls.map(tc => (
+                <ToolCallCard key={tc.id} tc={tc} />
+              ))}
+            </div>
           )}
         </div>
       ))}

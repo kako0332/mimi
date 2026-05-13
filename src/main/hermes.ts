@@ -1,4 +1,7 @@
 import Store from 'electron-store'
+import { spawn, ChildProcess } from 'child_process'
+import { join } from 'path'
+import WebSocket from 'ws'
 
 interface HermesConfig {
   apiUrl: string
@@ -9,14 +12,9 @@ interface HermesConfig {
   theme: string
 }
 
-interface ChatChunk {
-  type: 'text' | 'tool' | 'done' | 'error'
-  content: string
-}
-
 const store = new Store<HermesConfig>({
   defaults: {
-    apiUrl: 'http://localhost:8642/v1',
+    apiUrl: 'https://open.bigmodel.cn/api/anthropic',
     apiKey: '',
     alwaysOnTop: true,
     autoStart: false,
@@ -26,6 +24,14 @@ const store = new Store<HermesConfig>({
 })
 
 export class HermesClient {
+  private sessionToken: string = ''
+  private ws: WebSocket | null = null
+  private sessionId: string = ''
+  private rpcId = 0
+  private pendingRpc: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }> = new Map()
+  private eventHandler: ((event: { type: string; payload?: any }) => void) | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
   getConfig(): HermesConfig {
     return {
       apiUrl: store.get('apiUrl'),
@@ -45,101 +51,215 @@ export class HermesClient {
     }
   }
 
-  private authHeaders(): Record<string, string> {
-    const config = this.getConfig()
+  private dashboardHeaders(): Record<string, string> {
     const headers: Record<string, string> = {}
-    if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
+    if (this.sessionToken) {
+      headers['X-Hermes-Session-Token'] = this.sessionToken
+    }
     return headers
   }
 
-  async checkConnection(): Promise<{ connected: boolean; error?: string }> {
+  async fetchSessionToken(): Promise<string> {
     const config = this.getConfig()
-    try {
-      const res = await fetch(`${config.apiUrl}/models`, {
-        method: 'GET',
-        headers: this.authHeaders(),
-        signal: AbortSignal.timeout(5000)
-      })
-      return { connected: res.ok }
-    } catch (err: any) {
-      return { connected: false, error: err.message }
-    }
-  }
-
-  async checkDashboard(): Promise<{ connected: boolean; error?: string }> {
-    const config = this.getConfig()
-    try {
-      const res = await fetch(`${config.dashboardUrl}/api/skills`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      })
-      return { connected: res.ok }
-    } catch (err: any) {
-      return { connected: false, error: err.message }
-    }
-  }
-
-  async *chat(messages: { role: string; content: string }[]): AsyncGenerator<ChatChunk> {
-    const config = this.getConfig()
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...this.authHeaders()
-    }
-
-    try {
-      const res = await fetch(`${config.apiUrl}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: 'hermes',
-          messages,
-          stream: true,
-          conversation: 'desktop-pet'
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        const res = await fetch(config.dashboardUrl, {
+          signal: AbortSignal.timeout(5000)
         })
+        const html = await res.text()
+        const match = html.match(/SESSION_TOKEN__="([^"]+)"/)
+        if (match) {
+          this.sessionToken = match[1]
+          return this.sessionToken
+        }
+      } catch {
+        // Dashboard not running yet, wait and retry
+      }
+      await new Promise(r => setTimeout(r, 2000))
+    }
+    return this.sessionToken
+  }
+
+  private getWsUrl(): string {
+    const config = this.getConfig()
+    const httpUrl = config.dashboardUrl.replace(/^http/, 'ws')
+    return `${httpUrl}/api/ws?token=${this.sessionToken}`
+  }
+
+  async connect(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) return
+
+    if (!this.sessionToken) {
+      await this.fetchSessionToken()
+    }
+    if (!this.sessionToken) {
+      throw new Error('No session token')
+    }
+
+    return new Promise((resolve, reject) => {
+      const url = this.getWsUrl()
+      const ws = new WebSocket(url)
+
+      ws.on('open', () => {
+        this.ws = ws
+        resolve()
       })
 
-      if (!res.ok) {
-        yield { type: 'error', content: `API error: ${res.status} ${res.statusText}` }
-        return
-      }
+      ws.on('message', (data: WebSocket.Data) => {
+        try {
+          const msg = JSON.parse(data.toString())
+          this.handleMessage(msg)
+        } catch { /* ignore parse errors */ }
+      })
 
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data: ')) continue
-          const data = trimmed.slice(6)
-          if (data === '[DONE]') {
-            yield { type: 'done', content: '' }
-            return
-          }
-
-          try {
-            const parsed = JSON.parse(data)
-            const delta = parsed.choices?.[0]?.delta
-            if (delta?.content) {
-              yield { type: 'text', content: delta.content }
-            }
-          } catch {
-            // skip malformed JSON lines
-          }
+      ws.on('close', () => {
+        this.ws = null
+        // Reject pending RPCs
+        for (const [, p] of this.pendingRpc) {
+          p.reject(new Error('WebSocket closed'))
         }
+        this.pendingRpc.clear()
+        // Auto-reconnect after 5s
+        this.scheduleReconnect()
+      })
+
+      ws.on('error', (err: Error) => {
+        this.ws = null
+        reject(err)
+      })
+    })
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      this.connect().catch(() => {})
+    }, 5000)
+  }
+
+  private handleMessage(msg: any): void {
+    // RPC response
+    if (msg.id !== undefined && this.pendingRpc.has(msg.id)) {
+      const p = this.pendingRpc.get(msg.id)!
+      this.pendingRpc.delete(msg.id)
+      if (msg.error) {
+        p.reject(new Error(msg.error.message || 'RPC error'))
+      } else {
+        p.resolve(msg.result)
+      }
+      return
+    }
+
+    // Event notification
+    if (msg.method === 'event' && msg.params) {
+      this.eventHandler?.({ type: msg.params.type, payload: msg.params.payload })
+    }
+  }
+
+  private async rpc(method: string, params: Record<string, any> = {}): Promise<any> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect()
+    }
+    const id = ++this.rpcId
+    return new Promise((resolve, reject) => {
+      this.pendingRpc.set(id, { resolve, reject })
+      const msg = JSON.stringify({ jsonrpc: '2.0', id, method, params })
+      this.ws!.send(msg)
+      // Timeout after 120s
+      setTimeout(() => {
+        if (this.pendingRpc.has(id)) {
+          this.pendingRpc.delete(id)
+          reject(new Error('RPC timeout'))
+        }
+      }, 120000)
+    })
+  }
+
+  onEvent(handler: (event: { type: string; payload?: any }) => void): void {
+    this.eventHandler = handler
+  }
+
+  async checkConnection(): Promise<{ connected: boolean; error?: string }> {
+    try {
+      await this.connect()
+      return { connected: true }
+    } catch (err: any) {
+      return { connected: false, error: err.message }
+    }
+  }
+
+  // --- Chat via WebSocket ---
+
+  async chat(text: string, onChunk: (chunk: { type: string; content: string }) => void): Promise<void> {
+    try {
+      // Ensure connected
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        await this.connect()
       }
 
-      yield { type: 'done', content: '' }
+      // Create session if needed
+      if (!this.sessionId) {
+        const result = await this.rpc('session.create', { cols: 120 })
+        this.sessionId = result.session_id
+      }
+
+      // Set up event handler for this chat
+      this.onEvent((event) => {
+        switch (event.type) {
+          case 'message.delta':
+            if (event.payload?.text) {
+              onChunk({ type: 'text', content: event.payload.text })
+            }
+            break
+          case 'thinking.delta':
+            if (event.payload?.text) {
+              onChunk({ type: 'thinking', content: event.payload.text })
+            }
+            break
+          case 'tool.start':
+            onChunk({
+              type: 'tool_start',
+              content: JSON.stringify({
+                id: event.payload?.tool_id,
+                name: event.payload?.name,
+                context: event.payload?.context
+              })
+            })
+            break
+          case 'tool.complete':
+            onChunk({
+              type: 'tool_complete',
+              content: JSON.stringify({
+                id: event.payload?.tool_id,
+                name: event.payload?.name,
+                summary: event.payload?.summary
+              })
+            })
+            break
+          case 'message.complete':
+            if (event.payload?.status === 'error') {
+              onChunk({ type: 'error', content: event.payload.text || 'Unknown error' })
+            }
+            onChunk({ type: 'done', content: '' })
+            break
+          case 'error':
+            onChunk({ type: 'error', content: event.payload?.message || 'Agent error' })
+            onChunk({ type: 'done', content: '' })
+            break
+        }
+      })
+
+      // Submit prompt
+      await this.rpc('prompt.submit', { session_id: this.sessionId, text })
     } catch (err: any) {
-      yield { type: 'error', content: err.message }
+      onChunk({ type: 'error', content: err.message })
     }
+  }
+
+  // Reset session (e.g. on new conversation)
+  resetSession(): void {
+    this.sessionId = ''
   }
 
   // --- Skills ---
@@ -147,6 +267,7 @@ export class HermesClient {
     const config = this.getConfig()
     try {
       const res = await fetch(`${config.dashboardUrl}/api/skills`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return []
@@ -161,7 +282,7 @@ export class HermesClient {
     try {
       const res = await fetch(`${config.dashboardUrl}/api/skills/toggle`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.dashboardHeaders() },
         body: JSON.stringify({ name, enabled }),
         signal: AbortSignal.timeout(5000)
       })
@@ -176,10 +297,12 @@ export class HermesClient {
     const config = this.getConfig()
     try {
       const res = await fetch(`${config.dashboardUrl}/api/sessions`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return []
-      return await res.json()
+      const data = await res.json()
+      return Array.isArray(data) ? data : (data.sessions || [])
     } catch {
       return []
     }
@@ -189,10 +312,12 @@ export class HermesClient {
     const config = this.getConfig()
     try {
       const res = await fetch(`${config.dashboardUrl}/api/sessions/${id}/messages`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return []
-      return await res.json()
+      const data = await res.json()
+      return Array.isArray(data) ? data : (data.messages || data.data || [])
     } catch {
       return []
     }
@@ -203,6 +328,7 @@ export class HermesClient {
     const config = this.getConfig()
     try {
       const res = await fetch(`${config.dashboardUrl}/api/profiles`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return []
@@ -216,6 +342,7 @@ export class HermesClient {
     const config = this.getConfig()
     try {
       const res = await fetch(`${config.dashboardUrl}/api/profiles/${encodeURIComponent(name)}/soul`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return ''
@@ -230,8 +357,8 @@ export class HermesClient {
   async getJobs(): Promise<any[]> {
     const config = this.getConfig()
     try {
-      const res = await fetch(`${config.apiUrl.replace('/v1', '')}/api/jobs`, {
-        headers: this.authHeaders(),
+      const res = await fetch(`${config.dashboardUrl}/api/jobs`, {
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       if (!res.ok) return []
@@ -244,9 +371,9 @@ export class HermesClient {
   async createJob(job: { name: string; schedule: string; prompt: string; deliver?: string }): Promise<any> {
     const config = this.getConfig()
     try {
-      const res = await fetch(`${config.apiUrl.replace('/v1', '')}/api/jobs`, {
+      const res = await fetch(`${config.dashboardUrl}/api/jobs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+        headers: { 'Content-Type': 'application/json', ...this.dashboardHeaders() },
         body: JSON.stringify(job),
         signal: AbortSignal.timeout(5000)
       })
@@ -260,9 +387,9 @@ export class HermesClient {
   async deleteJob(id: string): Promise<boolean> {
     const config = this.getConfig()
     try {
-      const res = await fetch(`${config.apiUrl.replace('/v1', '')}/api/jobs/${id}`, {
+      const res = await fetch(`${config.dashboardUrl}/api/jobs/${id}`, {
         method: 'DELETE',
-        headers: this.authHeaders(),
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       return res.ok
@@ -274,14 +401,42 @@ export class HermesClient {
   async toggleJob(id: string, action: 'pause' | 'resume' | 'run'): Promise<boolean> {
     const config = this.getConfig()
     try {
-      const res = await fetch(`${config.apiUrl.replace('/v1', '')}/api/jobs/${id}/${action}`, {
+      const res = await fetch(`${config.dashboardUrl}/api/jobs/${id}/${action}`, {
         method: 'POST',
-        headers: this.authHeaders(),
+        headers: this.dashboardHeaders(),
         signal: AbortSignal.timeout(5000)
       })
       return res.ok
     } catch {
       return false
     }
+  }
+
+  async checkDashboard(): Promise<{ connected: boolean; error?: string }> {
+    const config = this.getConfig()
+    try {
+      if (!this.sessionToken) {
+        await this.fetchSessionToken()
+      }
+      const res = await fetch(`${config.dashboardUrl}/api/status`, {
+        headers: this.dashboardHeaders(),
+        signal: AbortSignal.timeout(5000)
+      })
+      return { connected: res.ok }
+    } catch (err: any) {
+      return { connected: false, error: err.message }
+    }
+  }
+
+  disconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+    }
+    this.sessionId = ''
   }
 }
