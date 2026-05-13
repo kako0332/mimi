@@ -48,12 +48,16 @@ export default function ChatBubble({ messages, streaming }: Props) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Show typing indicator only when streaming and last message is empty assistant
+  const lastMsg = messages[messages.length - 1]
+  const showTyping = streaming && lastMsg?.role === 'assistant' && !lastMsg.content
+
   return (
     <div className="chat-bubble">
       {messages.map((msg, i) => (
         <div key={i} className={`msg ${msg.role}`}>
           {msg.content}
-          {streaming && msg.role === 'assistant' && i === messages.length - 1 && (
+          {streaming && msg.role === 'assistant' && i === messages.length - 1 && msg.content && (
             <span className="cursor">|</span>
           )}
           {msg.toolCalls && msg.toolCalls.length > 0 && (
@@ -65,6 +69,11 @@ export default function ChatBubble({ messages, streaming }: Props) {
           )}
         </div>
       ))}
+      {showTyping && (
+        <div className="typing-indicator">
+          <span /><span /><span />
+        </div>
+      )}
       <div ref={endRef} />
     </div>
   )
