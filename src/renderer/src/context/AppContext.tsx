@@ -46,6 +46,7 @@ interface AppState {
   sessions: any[]
   jobs: CronJob[]
   notifications: PetNotification[]
+  live2dModelUrl: string
 }
 
 type Action =
@@ -65,6 +66,7 @@ type Action =
   | { type: 'SET_JOBS'; jobs: CronJob[] }
   | { type: 'ADD_NOTIFICATION'; notification: PetNotification }
   | { type: 'CLEAR_NOTIFICATIONS' }
+  | { type: 'SET_LIVE2D_MODEL'; url: string }
 
 // Expression sync: analyze response text for keywords
 function detectExpression(text: string, current: Expression): Expression {
@@ -171,6 +173,8 @@ function reducer(state: AppState, action: Action): AppState {
       }
     case 'CLEAR_NOTIFICATIONS':
       return { ...state, notifications: [] }
+    case 'SET_LIVE2D_MODEL':
+      return { ...state, live2dModelUrl: action.url }
   }
 }
 
@@ -196,7 +200,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     skills: [],
     sessions: [],
     jobs: [],
-    notifications: []
+    notifications: [],
+    live2dModelUrl: ''
   })
 
   useEffect(() => {

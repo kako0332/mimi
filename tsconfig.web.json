@@ -10,6 +10,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "downlevelIteration": true,
     "outDir": "./out/renderer"
   },
   "include": ["src/renderer/**/*"]

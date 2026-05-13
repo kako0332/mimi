@@ -47,7 +47,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="drag-region" />
-      <PetCharacter expression={state.expression} onClick={handlePetClick} />
+      <PetCharacter expression={state.expression} onClick={handlePetClick} modelUrl={state.live2dModelUrl} />
 
       {latestNotification && (
         <div className="pet-notification" key={latestNotification.timestamp}>
