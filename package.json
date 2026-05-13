@@ -16,8 +16,6 @@
   },
   "dependencies": {
     "electron-store": "^8.2.0",
-    "pixi-live2d-display": "^0.4.0",
-    "pixi.js": "^7.4.3",
     "ws": "^8.20.1"
   },
   "devDependencies": {
