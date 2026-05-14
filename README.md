@@ -1,150 +1,199 @@
-# Mimi - 桌面宠物
+# Mimi — Live2D 桌面宠物
 
-由 [Hermes Agent](https://github.com/NousResearch/Hermes-Agent) 驱动的桌面宠物，基于 Electron + React + TypeScript 构建。
+一个基于 Electron + Live2D 的桌面宠物应用，集成 Hermes Agent 实现 AI 流式对话，支持多模型切换、表情系统、鼠标追踪、MCP 协议控制。
 
-## v0.3.0 - Phase 3
+## 技术栈
 
-扩展版本，新增事件监听、MCP 工具协议、多平台打包和自动化测试。
+| 类别 | 技术 |
+|------|------|
+| 框架 | Electron 33 + electron-vite 2 |
+| 前端 | React 18 + TypeScript 5.7 |
+| Live2D | Cubism SDK 5.0 (Core + Framework TS) |
+| 渲染 | WebGL2 (直接绑定，无第三方渲染库) |
+| 通信 | WebSocket (JSON-RPC 2.0) + SSE + Electron IPC |
+| 存储 | electron-store |
+| 协议 | MCP (Model Context Protocol) — port 3100 |
+| 打包 | electron-builder (NSIS / DMG / AppImage) |
+| 测试 | Playwright E2E |
 
-### 新增功能
+## 功能
 
-- **Hermes 事件监听** - 实时订阅 Hermes Dashboard 事件流（SSE），定时任务结果自动通知宠物
-- **MCP 工具协议** - 基于 Model Context Protocol 的 HTTP+SSE JSON-RPC 服务（端口 3100），AI 可远程控制宠物表情、通知、消息、主题
-- **MCP 工具列表**
-  - `set_expression` - 设置宠物表情
-  - `show_notification` - 显示桌面通知
-  - `display_message` - 在聊天气泡中显示消息
-  - `change_theme` - 切换宠物皮肤主题
-- **通知系统** - 宠物头顶弹出通知气泡，自动淡出，支持 Hermes 事件和 MCP 触发
-- **多平台打包** - Windows（NSIS 安装包）、macOS（DMG）、Linux（AppImage + deb）一键构建
-- **E2E 自动化测试** - 基于 Playwright 的 Electron 端到端测试，覆盖 8 个核心场景
+### Live2D 渲染
+- 完整 Cubism SDK 5 渲染管线：Moc、纹理、物理、姿态、表情、动作
+- 眨眼 / 呼吸 / 物理 (头发摆动) 自动播放
+- 鼠标追踪 (眼球 + 头部 + 身体朝向)
+- HitArea 点击检测
+- 随机待机动作
+- 预乘 Alpha 透明渲染，无边框透明窗口
 
-### 构建与测试
+### 多模型支持
+- 内置 4 个模型：Hiyori、Mark、Natori、Rice
+- 右键宠物弹出模型选择菜单
+- 设置面板中也可切换模型
+- 模型选择持久化到 electron-store
 
-```bash
-# 构建
-npm run build
+### AI 对话
+- 通过 WebSocket 与 Hermes Agent 实时流式对话
+- 工具调用 (tool call) 实时显示：运行中 / 完成 / 失败
+- AI 回复自动匹配表情 (开心、难过、思考等)
+- 繁忙自动重试 (最多 5 次，指数退避)
+- 语音输入 (Web Speech API)
 
-# 开发
-npm run dev
+### MCP 协议控制
+外部 AI Agent 可通过 MCP 协议 (port 3100) 控制宠物：
 
-# E2E 测试
-npm run test:e2e
+| 工具 | 功能 |
+|------|------|
+| `set_expression` | 设置表情 (idle/happy/talking/sad/thinking/sleeping) |
+| `show_notification` | 显示通知气泡 |
+| `display_message` | 主动发送消息 |
+| `change_theme` | 切换主题色 |
 
-# 打包（Windows）
-npm run package:win
+### 功能面板
+- **聊天** — 与 AI 实时对话
+- **技能** — 查看 / 开关 Hermes 技能
+- **记忆** — 浏览历史会话和消息
+- **定时** — 创建 / 管理 Cron 定时任务
 
-# 打包（macOS）
-npm run package:mac
+### 其他
+- 4 套主题色 (蓝 / 粉 / 绿 / 紫) + Glassmorphism 毛玻璃 UI
+- 系统托盘图标，最小化到托盘
+- 窗口置顶 / 开机自启
+- SSE 实时事件监听
+- 离线检测 + CSS 宠物降级
+- 拖动宠物移动窗口 (Pointer Capture)
 
-# 打包（Linux）
-npm run package:linux
-```
-
----
-
-## v0.2.0 - Phase 2
-
-增强版本，新增 6 大功能。
-
-### 新增功能
-
-- **表情联动** - 对话内容自动影响宠物表情（关键词检测：开心/难过/思考等）
-- **宠物皮肤** - 4 种主题皮肤（蓝色、粉色、绿色、紫色），设置面板一键切换
-- **记忆面板** - 浏览 Hermes 会话历史，查看对话详情
-- **技能管理** - 列出 Hermes 技能，支持启用/禁用切换
-- **定时任务** - 创建/暂停/恢复/删除/立即执行 Cron 定时任务
-- **语音输入** - 基于 Web Speech API 的语音识别输入（中文）
-
-### 界面改进
-
-- 聊天区域新增标签导航：聊天 | 技能 | 记忆 | 定时
-- 设置面板新增 Dashboard 地址配置和皮肤选择器
-- CSS 变量主题系统，全局统一配色
-
----
-
-## v0.1.0 - Phase 1
-
-初始版本。
-
-### 功能
-
-- **宠物角色** - 扁平矢量风格蓝色圆形宠物，6 种表情（待机、开心、说话、难过、思考、睡觉），纯 CSS 动画
-- **Hermes 对话** - 通过 Hermes Agent 的 OpenAI 兼容 SSE API（`localhost:8642/v1`）实现实时流式对话
-- **弹出聊天气泡** - 点击宠物打开/关闭聊天，支持流式响应与光标动画
-- **设置面板** - 配置 API 地址、API Key、窗口置顶、开机自启，支持连接测试
-- **系统托盘** - 托盘图标右键菜单（显示、设置、退出）
-- **离线检测** - 每 10 秒自动检测 Hermes 连接状态，离线时切换难过表情并禁用输入
-- **透明无边框窗口** - 顶部区域拖拽移动，默认始终置顶
-
-### 环境要求
-
-- Node.js >= 18
-- [Hermes Agent](https://github.com/NousResearch/Hermes-Agent) 运行于 `localhost:8642`（聊天功能需要）
-- Hermes Dashboard 运行于 `localhost:9119`（技能/记忆/定时任务需要）
-
-### 开发
-
-```bash
-npm install
-npm run dev
-```
-
-### 构建
-
-```bash
-npm run build
-```
-
-### 项目结构
+## 项目结构
 
 ```
 desktop-pet/
+├── assets/                          # 应用图标 (tray-icon.png, app.ico)
 ├── src/
-│   ├── main/
-│   │   ├── index.ts          # Electron 主进程
-│   │   ├── hermes.ts         # Hermes API 客户端（SSE 流式 + Dashboard API）
-│   │   ├── hermes-events.ts  # Hermes 事件流监听（SSE）
-│   │   └── mcp-server.ts     # MCP 工具协议服务（HTTP+SSE JSON-RPC）
+│   ├── main/                        # Electron 主进程
+│   │   ├── index.ts                 # 窗口创建、IPC 注册、生命周期
+│   │   ├── hermes.ts                # Hermes Agent 客户端 (WS + REST)
+│   │   ├── hermes-events.ts         # SSE 事件监听
+│   │   └── mcp-server.ts            # MCP 协议服务器 (port 3100)
 │   ├── preload/
-│   │   ├── index.ts          # 预加载脚本（contextBridge）
-│   │   └── index.d.ts        # TypeScript 类型声明
+│   │   ├── index.ts                 # contextBridge API 暴露
+│   │   └── index.d.ts              # API 类型声明
 │   └── renderer/
+│       ├── index.html               # 入口 HTML
+│       ├── public/
+│       │   └── live2d/              # Live2D 资源
+│       │       ├── live2dcubismcore.min.js   # Cubism Core WASM
+│       │       ├── Shaders/                  # WebGL 着色器
+│       │       ├── Hiyori/                   # Hiyori 模型
+│       │       ├── Mark/                     # Mark 模型
+│       │       ├── Natori/                   # Natori 模型
+│       │       └── Rice/                     # Rice 模型
 │       └── src/
-│           ├── App.tsx        # 根组件
-│           ├── App.css        # 主题变量 + 动画 + 布局样式
-│           ├── main.tsx       # React 入口
+│           ├── main.tsx             # React 入口
+│           ├── App.tsx              # 根组件 (布局 + 状态)
+│           ├── App.css              # 全局样式 + 主题
+│           ├── config/
+│           │   └── models.ts        # 模型注册表
 │           ├── context/
-│           │   └── AppContext.tsx  # 全局状态（Context + useReducer）
-│           └── components/
-│               ├── PetCharacter.tsx
-│               ├── ChatBubble.tsx
-│               ├── ChatInput.tsx    # 含语音输入
-│               ├── SettingsPanel.tsx
-│               ├── SkillsPanel.tsx
-│               ├── MemoryPanel.tsx
-│               └── CronPanel.tsx
-├── tests/
-│   └── e2e/
-│       └── app.spec.ts       # Playwright E2E 测试
-├── assets/
-│   └── tray-icon.png
-├── VERSION
-└── electron.vite.config.ts
+│           │   └── AppContext.tsx    # 全局状态 (useReducer)
+│           ├── components/
+│           │   ├── PetCharacter.tsx       # 双模式渲染器 (Live2D / CSS)
+│           │   ├── Live2DCharacter.tsx    # Live2D 画布 + 拖拽 + 视线追踪
+│           │   ├── ModelPicker.tsx        # 右键模型选择菜单
+│           │   ├── ChatBubble.tsx         # 消息列表 + 工具调用卡片
+│           │   ├── ChatInput.tsx          # 输入栏 + 语音
+│           │   ├── SettingsPanel.tsx      # 设置面板 (模型/主题/开关)
+│           │   ├── SkillsPanel.tsx        # 技能管理
+│           │   ├── MemoryPanel.tsx        # 会话历史
+│           │   └── CronPanel.tsx          # 定时任务
+│           ├── live2d/
+│           │   ├── api/
+│           │   │   ├── Live2DAdapter.ts   # WebGL 适配器 (加载/渲染/交互)
+│           │   │   └── expressionMap.ts   # 表情映射
+│           │   ├── core/                  # Cubism Core JS 声明
+│           │   ├── framework/             # Cubism Framework TS 源码
+│           │   └── index.ts
+│           └── types/
+│               └── window-api.d.ts       # window.api 类型
+├── electron.vite.config.ts          # electron-vite 构建配置
+├── package.json
+├── tsconfig.json
+├── tsconfig.node.json
+├── tsconfig.web.json
+└── VERSION
 ```
 
-### 技术栈
+## 架构
 
-| 层级 | 技术 |
-|------|------|
-| 框架 | Electron 33 + electron-vite 2 |
-| 前端 | React 18 + TypeScript 5 |
-| 状态管理 | React Context + useReducer |
-| 持久化 | electron-store |
-| 流式通信 | SSE + MessagePort IPC |
-| 主题 | CSS 自定义属性 |
-| 语音 | Web Speech API |
-| 工具协议 | MCP（HTTP+SSE JSON-RPC） |
-| 测试 | Playwright |
-| 打包 | electron-builder |
+```
+┌─────────────────────────────────────────┐
+│              Electron Main              │
+│  ┌──────────┐ ┌───────────┐ ┌────────┐ │
+│  │  Hermes   │ │    MCP    │ │  SSE   │ │
+│  │  Client   │ │  Server   │ │ Events │ │
+│  │ (WS+REST) │ │  :3100    │ │        │ │
+│  └─────┬─────┘ └─────┬─────┘ └───┬────┘ │
+│        │  IPC         │  IPC       │ IPC  │
+│  ┌─────┴──────────────┴───────────┴────┐ │
+│  │           BrowserWindow              │ │
+│  │  ┌───────────────────────────────┐   │ │
+│  │  │     React 18 Renderer         │   │ │
+│  │  │  AppContext → PetCharacter    │   │ │
+│  │  │     → Live2DAdapter (WebGL2)  │   │ │
+│  │  │  + ChatBubble / Skills / ...  │   │ │
+│  │  └───────────────────────────────┘   │ │
+│  └──────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+         │                    │
+    Hermes Dashboard     External Agent
+    (localhost:9119)     (MCP :3100)
+```
+
+## 开发
+
+```bash
+# 安装依赖
+npm install
+
+# 开发模式
+npm run dev
+
+# 构建
+npm run build
+
+# 打包安装程序
+npm run package:win
+```
+
+## 版本历史
+
+### v0.4.0
+- 多模型支持 (Hiyori / Mark / Natori / Rice)
+- 右键模型切换菜单
+- 设置面板模型选择器
+- 模型选择持久化
+- 拖拽移动窗口 (Pointer Capture)
+- 无边框透明窗口优化
+- 预乘 Alpha 纹理修复
+- 项目结构整理
+
+### v0.3.0
+- Live2D Cubism SDK 5 集成
+- MCP 协议服务器
+- SSE 事件监听
+- 多平台打包
+- E2E 测试
+
+### v0.2.0
+- Glassmorphism UI 重设计
+- 技能 / 会话 / 定时任务面板
+- 主题切换
+
+### v0.1.0
+- Electron + React 基础框架
+- Hermes Agent WebSocket 对话
+- CSS 宠物角色
+- 系统托盘
+
+## License
+
+MIT

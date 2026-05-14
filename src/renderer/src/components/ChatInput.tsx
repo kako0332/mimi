@@ -73,6 +73,13 @@ export default function ChatInput({ onSend, disabled }: Props) {
       <button onClick={handleSend} disabled={disabled || !text.trim()}>
         发送
       </button>
+      <button
+        className="reset-btn"
+        onClick={() => window.api.resetSession()}
+        title="重置对话会话（session busy 时使用）"
+      >
+        ↻
+      </button>
     </div>
   )
 }

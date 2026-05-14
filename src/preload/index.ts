@@ -18,6 +18,10 @@ const api = {
     return ipcRenderer.invoke('hermes:check-connection')
   },
 
+  resetSession: (): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('hermes:reset-session')
+  },
+
   getSettings: (): Promise<any> => {
     return ipcRenderer.invoke('settings:get')
   },
@@ -32,6 +36,10 @@ const api = {
 
   minimizeToTray: (): Promise<void> => {
     return ipcRenderer.invoke('window:minimize-to-tray')
+  },
+
+  moveWindowBy: (dx: number, dy: number): void => {
+    ipcRenderer.send('window:move-by', { dx, dy })
   },
 
   onOpenSettings: (callback: () => void) => {

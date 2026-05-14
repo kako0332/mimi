@@ -11,7 +11,7 @@ import CronPanel from './components/CronPanel'
 type Tab = 'chat' | 'skills' | 'memory' | 'cron'
 
 export default function App() {
-  const { state, send } = useAppState()
+  const { state, send, setModel } = useAppState()
   const [chatOpen, setChatOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('chat')
@@ -46,8 +46,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="drag-region" />
-      <PetCharacter expression={state.expression} onClick={handlePetClick} modelUrl={state.live2dModelUrl} />
+      <PetCharacter expression={state.expression} onClick={handlePetClick} modelUrl={state.live2dModelUrl} activeModelId={state.live2dModelId} onSelectModel={setModel} />
 
       {latestNotification && (
         <div className="pet-notification" key={latestNotification.timestamp}>
@@ -68,22 +67,27 @@ export default function App() {
             ))}
           </div>
 
-          {activeTab === 'chat' && (
-            <>
-              <ChatBubble messages={state.messages} streaming={state.isStreaming} />
-              <ChatInput
-                onSend={send}
-                disabled={!state.connected || state.isStreaming}
-              />
-              {!state.connected && (
-                <div className="offline-hint">连接断开，请检查 Hermes 是否运行</div>
-              )}
-            </>
-          )}
+          <div className="tab-content" key={activeTab}>
+            {activeTab === 'chat' && (
+              <>
+                <ChatBubble messages={state.messages} streaming={state.isStreaming} />
+                <ChatInput
+                  onSend={send}
+                  disabled={!state.connected || state.isStreaming}
+                />
+                {!state.connected && (
+                  <div className="offline-hint">连接断开，请检查 Hermes 是否运行</div>
+                )}
+                {state.retrying && (
+                  <div className="retry-hint">⏳ 模型繁忙，第 {state.retryAttempt} 次自动重试中...</div>
+                )}
+              </>
+            )}
 
-          {activeTab === 'skills' && <SkillsPanel />}
-          {activeTab === 'memory' && <MemoryPanel />}
-          {activeTab === 'cron' && <CronPanel />}
+            {activeTab === 'skills' && <SkillsPanel />}
+            {activeTab === 'memory' && <MemoryPanel />}
+            {activeTab === 'cron' && <CronPanel />}
+          </div>
 
           <button className="settings-btn" onClick={handleOpenSettings}>设置</button>
         </div>

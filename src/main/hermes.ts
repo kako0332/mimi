@@ -10,6 +10,7 @@ interface HermesConfig {
   autoStart: boolean
   dashboardUrl: string
   theme: string
+  live2dModel: string
 }
 
 const store = new Store<HermesConfig>({
@@ -19,7 +20,8 @@ const store = new Store<HermesConfig>({
     alwaysOnTop: true,
     autoStart: false,
     dashboardUrl: 'http://localhost:9119',
-    theme: 'blue'
+    theme: 'blue',
+    live2dModel: 'hiyori'
   }
 })
 
@@ -39,7 +41,8 @@ export class HermesClient {
       alwaysOnTop: store.get('alwaysOnTop'),
       autoStart: store.get('autoStart'),
       dashboardUrl: store.get('dashboardUrl'),
-      theme: store.get('theme')
+      theme: store.get('theme'),
+      live2dModel: store.get('live2dModel')
     }
   }
 

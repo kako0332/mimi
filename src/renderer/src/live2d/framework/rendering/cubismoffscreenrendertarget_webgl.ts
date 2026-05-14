@@ -236,5 +236,4 @@ export class CubismOffscreenRenderTarget_WebGL extends CubismRenderTarget_WebGL 
   private _parentOffscreenRenderTarget: CubismOffscreenRenderTarget_WebGL; // 親のオフスクリーン描画用レンダーターゲット
   private _oldOffscreen: CubismOffscreenRenderTarget_WebGL; // 以前のオフスクリーン描画用レンダーターゲット
   private _webGLOffscreenManager: CubismWebGLOffscreenManager; // オフスクリーン描画用レンダーターゲットマネージャ
-  protected _gl: WebGLRenderingContext | WebGL2RenderingContext; // WebGLコンテキスト
 }

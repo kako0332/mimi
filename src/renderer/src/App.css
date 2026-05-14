@@ -88,21 +88,16 @@ html, body, #root {
 /* ---- Pet Character ---- */
 
 .pet {
-  margin-top: 50px;
   cursor: pointer;
   -webkit-app-region: no-drag;
   position: relative;
-  z-index: 10;
+  z-index: 1;
 }
 
 /* Live2D pet container */
 .pet-live2d {
-  width: 200px;
-  height: 300px;
-  margin-left: auto;
-  margin-right: auto;
-  border-radius: 12px;
-  overflow: hidden;
+  width: 100%;
+  height: 100%;
   background: transparent;
 }
 
@@ -111,6 +106,7 @@ html, body, #root {
   height: 100% !important;
   display: block;
   cursor: pointer;
+  background: transparent !important;
 }
 
 .pet-body {
@@ -125,7 +121,8 @@ html, body, #root {
 }
 
 /* Pet click squish feedback */
-.pet:active .pet-body {
+.pet:active .pet-body,
+.pet.bounce .pet-body {
   animation: pet-squish 0.4s ease;
 }
 
@@ -134,6 +131,17 @@ html, body, #root {
   30% { transform: scale(1.15, 0.85); }
   50% { transform: scale(0.9, 1.1); }
   100% { transform: scale(1, 1); }
+}
+
+/* Idle wiggle animation */
+.pet.bounce {
+  animation: pet-wiggle 0.5s ease;
+}
+
+@keyframes pet-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-5deg); }
+  75% { transform: rotate(5deg); }
 }
 
 /* Eyes */
@@ -176,6 +184,33 @@ html, body, #root {
   bottom: 22px;
   left: 50%;
   transform: translateX(-50%);
+  transition: all 0.3s ease;
+}
+
+.pet-mouth.happy {
+  width: 12px;
+  height: 6px;
+  border-bottom: 2.5px solid #2c3e50;
+}
+
+.pet-mouth.talking {
+  width: 6px;
+  height: 8px;
+  background: #2c3e50;
+  border: none;
+  border-radius: 50%;
+  animation: mouth-talk 0.3s ease infinite alternate;
+}
+
+.pet-mouth.sad {
+  border-bottom: none;
+  border-top: 2px solid #2c3e50;
+  border-radius: 50% 50% 0 0;
+}
+
+@keyframes mouth-talk {
+  from { height: 4px; }
+  to { height: 8px; }
 }
 
 /* Ears */
@@ -312,7 +347,8 @@ html, body, #root {
   position: absolute;
   bottom: 10px;
   left: 50%;
-  width: 300px;
+  transform: translateX(-50%);
+  width: 280px;
   max-height: calc(100% - 130px);
   background: rgba(25, 25, 40, 0.65);
   backdrop-filter: blur(24px) saturate(180%);
@@ -347,6 +383,26 @@ html, body, #root {
   display: flex;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Tab content slide transition */
+.tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: tab-slide-in 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes tab-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .tab-btn {
   flex: 1;
   padding: 8px 0;
@@ -357,6 +413,7 @@ html, body, #root {
   cursor: pointer;
   transition: color 0.2s, border-bottom 0.2s;
   border-bottom: 2px solid transparent;
+  position: relative;
 }
 .tab-btn.active {
   color: var(--accent);
@@ -564,6 +621,18 @@ html, body, #root {
   background: var(--accent-hover);
 }
 
+.reset-btn {
+  background: none !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+  padding: 8px 10px !important;
+  font-size: 16px !important;
+  transition: color 0.2s, transform 0.2s;
+}
+.reset-btn:hover {
+  color: #fbbf24 !important;
+  transform: rotate(180deg);
+}
+
 /* Voice button */
 .voice-btn {
   background: none !important;
@@ -588,6 +657,14 @@ html, body, #root {
   background: rgba(239, 68, 68, 0.1);
 }
 
+.retry-hint {
+  text-align: center;
+  padding: 4px;
+  font-size: 11px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+}
+
 .settings-btn {
   background: none;
   border: none;
@@ -604,30 +681,31 @@ html, body, #root {
 
 .settings-panel {
   position: absolute;
-  top: 20px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
   width: 280px;
-  background: rgba(25, 25, 40, 0.65);
+  background: rgba(25, 25, 40, 0.75);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   -webkit-app-region: no-drag;
-  max-height: 320px;
+  max-height: calc(100% - 20px);
   overflow-y: auto;
   color: #e2e8f0;
   animation: chat-pop-open 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  z-index: 15;
 }
 
 @supports not (backdrop-filter: blur(1px)) {
   .settings-panel {
-    background: rgba(25, 25, 40, 0.92);
+    background: rgba(25, 25, 40, 0.95);
   }
 }
 
@@ -724,6 +802,77 @@ html, body, #root {
 }
 .connection-status.connected { color: #4ade80; }
 .connection-status.disconnected { color: #f87171; }
+
+/* ---- Shared Panel Styles ---- */
+
+/* Model select in settings */
+.model-select {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.model-select-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.model-select-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+}
+.model-select-item.active {
+  border-color: var(--accent);
+  background: var(--accent-glass);
+  color: #e2e8f0;
+}
+.model-select-emoji {
+  font-size: 18px;
+}
+
+/* Model Picker */
+.model-picker {
+  position: fixed;
+  z-index: 20;
+  background: rgba(25, 25, 40, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  min-width: 120px;
+  animation: notif-in 0.2s ease;
+}
+.model-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  transition: background 0.15s, color 0.15s;
+}
+.model-picker-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+.model-picker-item.active {
+  color: var(--accent);
+}
+.model-emoji { font-size: 16px; }
+.model-name { flex: 1; }
+.model-check { font-size: 12px; color: var(--accent); }
 
 /* ---- Shared Panel Styles ---- */
 

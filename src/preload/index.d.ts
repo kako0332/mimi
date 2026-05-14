@@ -5,6 +5,7 @@ declare global {
     api: {
       chatStream: (text: string, onChunk: (chunk: any) => void) => void
       checkConnection: () => Promise<{ connected: boolean; error?: string }>
+      resetSession: () => Promise<{ ok: boolean }>
       getSettings: () => Promise<{
         apiUrl: string
         apiKey: string
@@ -16,6 +17,7 @@ declare global {
       setSettings: (config: Record<string, any>) => Promise<void>
       setAlwaysOnTop: (flag: boolean) => Promise<void>
       minimizeToTray: () => Promise<void>
+      moveWindowBy: (dx: number, dy: number) => void
       onOpenSettings: (callback: () => void) => void
       checkDashboard: () => Promise<{ connected: boolean; error?: string }>
       listSkills: () => Promise<any[]>

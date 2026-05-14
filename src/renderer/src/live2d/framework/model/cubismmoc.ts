@@ -40,7 +40,7 @@ export class CubismMoc {
     if (moc) {
       cubismMoc = new CubismMoc(moc);
       cubismMoc._mocVersion =
-        Live2DCubismCore.Version.csmGetMocVersion(mocBytes);
+        Live2DCubismCore.Version.csmGetMocVersion(moc, mocBytes);
     }
 
     return cubismMoc;
@@ -129,7 +129,15 @@ export class CubismMoc {
    * @returns .moc3 Version番号
    */
   public static getMocVersionFromBuffer(mocBytes: ArrayBuffer): number {
-    return Live2DCubismCore.Version.csmGetMocVersion(mocBytes);
+    // Core's csmGetMocVersion requires (moc, mocBytes) — cannot call with buffer alone.
+    // Create a temporary Moc to extract version, then release it.
+    const tempMoc = Live2DCubismCore.Moc.fromArrayBuffer(mocBytes);
+    if (!tempMoc) {
+      return 0;
+    }
+    const version = Live2DCubismCore.Version.csmGetMocVersion(tempMoc, mocBytes);
+    tempMoc._release();
+    return version;
   }
 
   /**

@@ -7,6 +7,8 @@ import { startEventListener, stopEventListener } from './hermes-events'
 import { startMcpServer, stopMcpServer } from './mcp-server'
 import Store from 'electron-store'
 
+app.commandLine.appendSwitch('enable-transparent-visuals')
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let hermesProcess: ChildProcess | null = null
@@ -19,11 +21,12 @@ function createWindow(): void {
 
   mainWindow = new BrowserWindow({
     width: 300,
-    height: 350,
+    height: 400,
     x: screenW - 350,
-    y: screenH - 400,
+    y: screenH - 450,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
@@ -38,12 +41,6 @@ function createWindow(): void {
   mainWindow.setVisibleOnAllWorkspaces(true)
   mainWindow.setSkipTaskbar(true)
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -51,6 +48,13 @@ function createWindow(): void {
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.error('Renderer gone:', details)
   })
+
+  // Load page AFTER registering all event handlers
+  if (process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  } else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
 
   // Start event listener and MCP server
   startEventListener(mainWindow, store, hermes)
@@ -90,6 +94,11 @@ ipcMain.handle('hermes:check-connection', async () => {
   return hermes.checkConnection()
 })
 
+ipcMain.handle('hermes:reset-session', () => {
+  hermes.resetSession()
+  return { ok: true }
+})
+
 ipcMain.handle('settings:get', () => {
   return hermes.getConfig()
 })
@@ -114,6 +123,12 @@ ipcMain.handle('window:set-always-on-top', (_e, flag: boolean) => {
 
 ipcMain.handle('window:minimize-to-tray', () => {
   mainWindow?.hide()
+})
+
+ipcMain.on('window:move-by', (_e, { dx, dy }: { dx: number, dy: number }) => {
+  if (!mainWindow) return
+  const [x, y] = mainWindow.getPosition()
+  mainWindow.setPosition(x + dx, y + dy)
 })
 
 // --- Dashboard API (Skills, Sessions, Profiles) ---

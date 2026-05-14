@@ -1,8 +1,3 @@
-/**
- * Live2DAdapter — Unified API for React components to interact with Live2D models.
- * Wraps the CubismWebFramework into a simple, clean interface.
- */
-
 import { CubismFramework } from '../framework/live2dcubismframework'
 import { CubismUserModel } from '../framework/model/cubismusermodel'
 import { CubismModelSettingJson } from '../framework/cubismmodelsettingjson'
@@ -11,13 +6,18 @@ import { CubismBreath, BreathParameterData } from '../framework/effect/cubismbre
 import { CubismExpressionMotion } from '../framework/motion/cubismexpressionmotion'
 import { CubismMotion } from '../framework/motion/cubismmotion'
 import { CubismDefaultParameterId } from '../framework/cubismdefaultparameterid'
-import { CubismIdHandle } from '../framework/id/cubismid'
 import { CubismRenderer_WebGL } from '../framework/rendering/cubismrenderer_webgl'
+import { CubismMatrix44 } from '../framework/math/cubismmatrix44'
 import { EXPRESSION_MAP } from './expressionMap'
 
-/**
- * LAppModel — extends CubismUserModel with model loading and rendering logic.
- */
+async function fetchBuffer(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const resp = await fetch(url, { signal })
+  if (!resp.ok) throw new Error(`Fetch failed: ${url} status=${resp.status}`)
+  const buffer = await resp.arrayBuffer()
+  if (!buffer || buffer.byteLength === 0) throw new Error(`Empty response: ${url}`)
+  return buffer
+}
+
 class LAppModel extends CubismUserModel {
   private _setting: CubismModelSettingJson | null = null
   private _homeDir: string = ''
@@ -26,43 +26,43 @@ class LAppModel extends CubismUserModel {
   private _exprMap: Map<string, CubismExpressionMotion> = new Map()
   private _motionMap: Map<string, CubismMotion[]> = new Map()
 
-  /**
-   * Load a Live2D model from a model3.json URL
-   */
-  async load(modelUrl: string): Promise<void> {
-    // Fetch model3.json
-    const resp = await fetch(modelUrl)
-    const arrayBuffer = await resp.arrayBuffer()
+  async load(gl: WebGL2RenderingContext, modelUrl: string, signal?: AbortSignal): Promise<void> {
+    const arrayBuffer = await fetchBuffer(modelUrl, signal)
     const setting = new CubismModelSettingJson(arrayBuffer, arrayBuffer.byteLength)
     this._setting = setting
 
-    // Derive base URL for relative paths
     const url = new URL(modelUrl, window.location.href)
     this._homeDir = url.href.substring(0, url.href.lastIndexOf('/') + 1)
 
     // Load Moc
     const mocFileName = setting.getModelFileName()
     if (mocFileName) {
-      const mocResp = await fetch(this._homeDir + mocFileName)
-      const mocBuffer = await mocResp.arrayBuffer()
+      const mocBuffer = await fetchBuffer(this._homeDir + mocFileName, signal)
       this.loadModel(mocBuffer)
     }
 
-    // Load textures via renderer
-    const textureCount = setting.getTextureCount()
-    if (textureCount > 0) {
-      this.setupRenderer()
-      for (let i = 0; i < textureCount; i++) {
-        const texName = setting.getTextureFileName(i)
-        if (!texName) continue
-        await this.loadTexture(i, this._homeDir + texName)
-      }
+    if (!this._model) {
+      throw new Error('Failed to load model moc data')
     }
 
-    // Setup model matrix
-    if (this._model) {
-      this._modelMatrix.setWidth(this._model.getCanvasWidth())
-      this._modelMatrix.setHeight(this._model.getCanvasHeight())
+    // Create and setup renderer
+    this.createRenderer(
+      this._model.getCanvasWidth(),
+      this._model.getCanvasHeight()
+    )
+
+    const renderer = this.getRenderer() as CubismRenderer_WebGL
+    if (renderer) {
+      renderer.startUp(gl)
+      renderer.setIsPremultipliedAlpha(true)
+    }
+
+    // Load textures
+    const textureCount = setting.getTextureCount()
+    for (let i = 0; i < textureCount; i++) {
+      const texName = setting.getTextureFileName(i)
+      if (!texName) continue
+      await this.loadTexture(gl, i, this._homeDir + texName, signal)
     }
 
     // Load expressions
@@ -72,15 +72,12 @@ class LAppModel extends CubismUserModel {
       const expFile = setting.getExpressionFileName(i)
       if (!expFile) continue
       try {
-        const expResp = await fetch(this._homeDir + expFile)
-        const expBuffer = await expResp.arrayBuffer()
+        const expBuffer = await fetchBuffer(this._homeDir + expFile, signal)
         const motion = this.loadExpression(expBuffer, expBuffer.byteLength, expName)
         if (motion && motion instanceof CubismExpressionMotion) {
           this._exprMap.set(expName, motion)
         }
-      } catch (e) {
-        console.warn(`Failed to load expression: ${expName}`, e)
-      }
+      } catch { /* expression optional */ }
     }
 
     // Load motions
@@ -94,8 +91,7 @@ class LAppModel extends CubismUserModel {
         const motionFile = setting.getMotionFileName(group, m)
         if (!motionFile) continue
         try {
-          const motionResp = await fetch(this._homeDir + motionFile)
-          const motionBuffer = await motionResp.arrayBuffer()
+          const motionBuffer = await fetchBuffer(this._homeDir + motionFile, signal)
           const motion = this.loadMotion(
             motionBuffer, motionBuffer.byteLength,
             `${group}_${m}`,
@@ -103,138 +99,127 @@ class LAppModel extends CubismUserModel {
             setting, group, m
           )
           if (motion) {
+            motion.setEffectIds([], [])
             motions.push(motion)
           }
-        } catch (e) {
-          console.warn(`Failed to load motion: ${group}[${m}]`, e)
-        }
+        } catch { /* motion optional */ }
       }
       this._motionMap.set(group, motions)
     }
 
-    // Setup eye blink
+    // Eye blink
     this._blinkCtrl = CubismEyeBlink.create(setting)
 
-    // Setup breath
+    // Breath
     this._breathCtrl = CubismBreath.create()
-    const breathParameters = new Array<BreathParameterData>()
-    const breathId = CubismFramework.getIdManager().getId(
-      CubismDefaultParameterId.Breath
-    )
-    breathParameters.push({
-      parameterId: breathId,
-      offset: 0.0,
-      peak: 0.5,
-      cycle: 3.235,
-      weight: 0.5
-    })
-    this._breathCtrl.setParameters(breathParameters)
+    this._breathCtrl.setParameters([{
+      parameterId: CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamBreath),
+      offset: 0.0, peak: 0.5, cycle: 3.235, weight: 0.5
+    }])
 
-    // Load physics
+    // Physics
     const physicsFile = setting.getPhysicsFileName()
     if (physicsFile) {
       try {
-        const physResp = await fetch(this._homeDir + physicsFile)
-        const physBuffer = await physResp.arrayBuffer()
+        const physBuffer = await fetchBuffer(this._homeDir + physicsFile, signal)
         this.loadPhysics(physBuffer, physBuffer.byteLength)
-      } catch (e) {
-        console.warn('Failed to load physics', e)
-      }
+      } catch { /* optional */ }
     }
 
-    // Load pose
+    // Pose
     const poseFile = setting.getPoseFileName()
     if (poseFile) {
       try {
-        const poseResp = await fetch(this._homeDir + poseFile)
-        const poseBuffer = await poseResp.arrayBuffer()
+        const poseBuffer = await fetchBuffer(this._homeDir + poseFile, signal)
         this.loadPose(poseBuffer, poseBuffer.byteLength)
-      } catch (e) {
-        console.warn('Failed to load pose', e)
-      }
+      } catch { /* optional */ }
     }
 
     this.setInitialized(true)
   }
 
-  /**
-   * Setup WebGL renderer
-   */
-  private setupRenderer(): void {
-    if (!this._model) return
-    // @ts-ignore — framework uses internal renderer assignment
-    const renderer = new CubismRenderer_WebGL()
-    // @ts-ignore
-    renderer.initialize(this._model)
-    // @ts-ignore — isPremultipliedAlpha is a setter in the framework
-    renderer.isPremultipliedAlpha(true)
-  }
+  private async loadTexture(gl: WebGL2RenderingContext, index: number, url: string, signal?: AbortSignal): Promise<void> {
+    const texture = gl.createTexture()
+    if (!texture) return
 
-  /**
-   * Load a texture into the renderer
-   */
-  private async loadTexture(index: number, url: string): Promise<void> {
-    const resp = await fetch(url)
-    const blob = await resp.blob()
-    const bitmap = await createImageBitmap(blob)
+    const image = new Image()
+    image.crossOrigin = 'anonymous'
+
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error(`Texture load failed: ${url}`))
+      image.src = url
+    })
+
+    if (signal?.aborted) return
+
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.generateMipmap(gl.TEXTURE_2D)
+    gl.bindTexture(gl.TEXTURE_2D, null)
 
     const renderer = this.getRenderer() as CubismRenderer_WebGL
-    if (!renderer) return
-    renderer.bindTexture(index, bitmap)
+    if (renderer) renderer.bindTexture(index, texture)
   }
 
-  /**
-   * Set expression by name
-   */
-  setExpressionByName(expressionName: string): void {
-    const motion = this._exprMap.get(expressionName)
+  setExpressionByName(name: string): void {
+    const motion = this._exprMap.get(name)
     if (!motion) return
-    if (this._expressionManager) {
-      this._expressionManager.startMotion(motion, false)
-    }
+    this._expressionManager?.startMotion(motion, false)
   }
 
-  /**
-   * Start a motion by group and index
-   */
   startMotionByGroup(group: string, index: number = 0, priority: number = 3): void {
     const motions = this._motionMap.get(group)
     if (!motions || index >= motions.length) return
-    if (this._motionManager) {
-      this._motionManager.startMotion(motions[index], false, priority as any)
-    }
+    this._motionManager?.startMotionPriority(motions[index], false, priority)
   }
 
-  /**
-   * Per-frame update
-   */
-  update(deltaTimeSeconds: number): void {
+  getMotionCount(group: string): number {
+    return this._motionMap.get(group)?.length || 0
+  }
+
+  update(deltaTimeSeconds: number, projectionMatrix: CubismMatrix44): void {
     if (!this._model || !this.isInitialized()) return
 
-    if (this._blinkCtrl) {
-      this._blinkCtrl.updateParameters(this._model, deltaTimeSeconds)
-    }
-    if (this._breathCtrl) {
-      this._breathCtrl.updateParameters(this._model, deltaTimeSeconds)
-    }
-    if (this._physics) {
-      this._physics.evaluate(this._model, deltaTimeSeconds)
-    }
-    if (this._pose) {
-      this._pose.updateParameters(this._model, deltaTimeSeconds)
+    try {
+      if (this._dragManager) this._dragManager.update(deltaTimeSeconds)
+      this._expressionManager?.updateMotion(this._model, deltaTimeSeconds)
+      this._motionManager?.updateMotion(this._model, deltaTimeSeconds)
+      this._blinkCtrl?.updateParameters(this._model, deltaTimeSeconds)
+      this._breathCtrl?.updateParameters(this._model, deltaTimeSeconds)
+      this._physics?.evaluate(this._model, deltaTimeSeconds)
+      this._pose?.updateParameters(this._model, deltaTimeSeconds)
+    } catch { /* skip frame on update error */ }
+
+    // Look-at
+    if (this._dragManager) {
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamAngleX), this._dragManager.getX())
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamAngleY), this._dragManager.getY())
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamAngleZ), this._dragManager.getX() * this._dragManager.getY() * -30)
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamBodyAngleX), this._dragManager.getX() * 10)
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamEyeBallX), this._dragManager.getX())
+      this._model.addParameterValueById(CubismFramework.getIdManager().getId(CubismDefaultParameterId.ParamEyeBallY), this._dragManager.getY())
     }
 
+    this._model.saveParameters()
     this._model.update()
 
     const renderer = this.getRenderer() as CubismRenderer_WebGL
     if (renderer) {
-      renderer.drawModel()
+      const mvpMatrix = projectionMatrix.clone()
+      mvpMatrix.multiplyByMatrix(this._modelMatrix)
+      renderer.setMvpMatrix(mvpMatrix)
+      try {
+        renderer.drawModel('/live2d/Shaders/')
+      } catch { /* shaders may not be loaded yet */ }
     }
   }
 
-  /**
-   * Hit test at given coordinates
-   */
   hitTest(x: number, y: number): string[] {
     if (!this._setting || !this._model) return []
     const hitAreas: string[] = []
@@ -242,28 +227,18 @@ class LAppModel extends CubismUserModel {
     for (let i = 0; i < count; i++) {
       const id = this._setting.getHitAreaId(i)
       const name = this._setting.getHitAreaName(i)
-      if (this.isHit(id, x, y)) {
-        hitAreas.push(name)
-      }
+      if (this.isHit(id, x, y)) hitAreas.push(name)
     }
     return hitAreas
   }
 
   override release(): void {
-    if (this._blinkCtrl) {
-      CubismEyeBlink.delete(this._blinkCtrl)
-      this._blinkCtrl = null
-    }
-    if (this._breathCtrl) {
-      CubismBreath.delete(this._breathCtrl)
-      this._breathCtrl = null
-    }
+    if (this._blinkCtrl) { CubismEyeBlink.delete(this._blinkCtrl); this._blinkCtrl = null }
+    if (this._breathCtrl) { CubismBreath.delete(this._breathCtrl); this._breathCtrl = null }
+    super.release()
   }
 }
 
-/**
- * Live2DAdapter — React-friendly wrapper for Live2D model management.
- */
 export class Live2DAdapter {
   private _canvas: HTMLCanvasElement
   private _gl: WebGL2RenderingContext | null = null
@@ -272,60 +247,64 @@ export class Live2DAdapter {
   private _lastTime: number = 0
   private _initialized: boolean = false
   private _disposed: boolean = false
+  private _projectionMatrix: CubismMatrix44 | null = null
+  private static _frameworkReady = false
 
   constructor(canvas: HTMLCanvasElement) {
     this._canvas = canvas
   }
 
-  private async ensureFramework(): Promise<void> {
+  private async ensureFramework(signal?: AbortSignal): Promise<void> {
     if (this._initialized) return
 
-    // Wait for Live2D Core to be loaded
-    const coreReady = () => typeof (window as any).Live2DCubismCore !== 'undefined'
+    const coreReady = () => {
+      const core = (window as any).Live2DCubismCore
+      if (!core) return false
+      try { return typeof core.Version.csmGetVersion() === 'number' } catch { return false }
+    }
     if (!coreReady()) {
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Live2D Core load timeout')), 10000)
         const check = () => {
-          if (coreReady()) {
-            clearTimeout(timeout)
-            resolve()
-          } else {
-            requestAnimationFrame(check)
-          }
+          if (signal?.aborted) { clearTimeout(timeout); reject(new DOMException('Aborted', 'AbortError')); return }
+          if (coreReady()) { clearTimeout(timeout); resolve() }
+          else requestAnimationFrame(check)
         }
         check()
       })
     }
 
-    // Initialize Cubism Framework
-    CubismFramework.startUp()
-    CubismFramework.initialize()
-
-    // Get WebGL2 context
-    this._gl = this._canvas.getContext('webgl2', {
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: true
-    }) as WebGL2RenderingContext | null
-
-    if (!this._gl) {
-      throw new Error('WebGL2 is not supported')
+    if (!Live2DAdapter._frameworkReady) {
+      const core = (window as any).Live2DCubismCore
+      if (core?.Memory?.initializeAmountOfMemory) {
+        core.Memory.initializeAmountOfMemory(256 * 1024 * 1024)
+      }
+      CubismFramework.startUp()
+      CubismFramework.initialize()
+      Live2DAdapter._frameworkReady = true
     }
 
+    this._gl = this._canvas.getContext('webgl2', {
+      alpha: true, premultipliedAlpha: true, antialias: true
+    }) as WebGL2RenderingContext | null
+
+    if (!this._gl) throw new Error('WebGL2 not available')
     this._initialized = true
   }
 
-  async loadModel(modelUrl: string): Promise<void> {
-    await this.ensureFramework()
+  async loadModel(modelUrl: string, signal?: AbortSignal): Promise<void> {
+    if (this._disposed) throw new DOMException('Aborted', 'AbortError')
 
-    if (this._model) {
-      this._model.release()
-    }
+    await this.ensureFramework(signal)
+    if (signal?.aborted || this._disposed) throw new DOMException('Aborted', 'AbortError')
 
-    this._model = new LAppModel()
-    await this._model.load(modelUrl)
+    if (this._model) { this._model.release(); this._model = null }
 
     const gl = this._gl!
+    this._model = new LAppModel()
+    await this._model.load(gl, modelUrl, signal)
+
+    this._projectionMatrix = new CubismMatrix44()
     gl.viewport(0, 0, this._canvas.width, this._canvas.height)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -341,31 +320,21 @@ export class Live2DAdapter {
     const deltaTime = Math.min((now - this._lastTime) / 1000, 0.1)
     this._lastTime = now
 
-    if (this._gl && this._model) {
-      this._gl.clearColor(0, 0, 0, 0)
-      this._gl.clear(this._gl.COLOR_BUFFER_BIT)
-
-      const projection = this._model.getModelMatrix()
-      if (projection) {
-        projection.setWidth(this._canvas.width)
-        projection.setHeight(this._canvas.height)
-      }
-
-      this._model.update(deltaTime)
+    if (this._gl && this._model && !this._disposed) {
+      try {
+        this._gl.clearColor(0, 0, 0, 0)
+        this._gl.clear(this._gl.COLOR_BUFFER_BIT)
+        this._model.update(deltaTime, this._projectionMatrix!)
+      } catch { /* skip render errors */ }
     }
 
-    this._animFrameId = requestAnimationFrame(this._renderLoop)
+    if (!this._disposed) {
+      this._animFrameId = requestAnimationFrame(this._renderLoop)
+    }
   }
 
   setExpression(expression: string): void {
-    const live2dExp = EXPRESSION_MAP[expression] || 'neutral'
-    this._model?.setExpressionByName(live2dExp)
-  }
-
-  setTalking(talking: boolean): void {
-    if (talking) {
-      this._model?.startMotionByGroup('Idle', 0, 2)
-    }
+    this._model?.setExpressionByName(EXPRESSION_MAP[expression] || 'neutral')
   }
 
   startMotion(group: string, index: number = 0, priority: number = 3): void {
@@ -380,24 +349,11 @@ export class Live2DAdapter {
     return this._model?.hitTest(x, y) || []
   }
 
-  getCanvas(): HTMLCanvasElement {
-    return this._canvas
-  }
-
   dispose(): void {
     this._disposed = true
-    if (this._animFrameId) {
-      cancelAnimationFrame(this._animFrameId)
-      this._animFrameId = 0
-    }
-    if (this._model) {
-      this._model.release()
-      this._model = null
-    }
+    if (this._animFrameId) { cancelAnimationFrame(this._animFrameId); this._animFrameId = 0 }
+    if (this._model) { this._model.release(); this._model = null }
     this._gl = null
-    if (this._initialized) {
-      try { CubismFramework.dispose() } catch { /* ignore */ }
-      this._initialized = false
-    }
+    this._initialized = false
   }
 }
